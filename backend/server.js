@@ -15,6 +15,15 @@ app.use(cors());
 app.use(express.json());
 app.use('/static', express.static('public'));
 
+// Create directories if they don't exist
+const requiredDirs = ['uploads', 'public'];
+requiredDirs.forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`Created directory: ${dir}`);
+  }
+});
+
 const upload = multer({ dest: "uploads/" });
 
 // Store connected clients and rooms
@@ -27,6 +36,26 @@ function validateRoomPassword(roomId, password) {
   if (!room) return false;
   return room.password === password;
 }
+
+// Health check endpoint for Render
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    message: 'Multi-User Live Video/Audio Translation Server is running',
+    timestamp: new Date().toISOString(),
+    rooms: rooms.size,
+    connectedClients: clients.size
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'healthy',
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    timestamp: new Date().toISOString()
+  });
+});
 
 // WebSocket for real-time communication
 wss.on('connection', (ws) => {
@@ -337,7 +366,7 @@ app.get("/rooms", (req, res) => {
 
 app.post("/create-room", (req, res) => {
   const { roomName, password, creatorName } = req.body;
-  const roomId = roomName || `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const roomId = roomName || `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   
   // Check if room already exists
   if (rooms.has(roomId)) {
@@ -514,6 +543,8 @@ function continueWithTranslation(cleanText, targetLang, videoTimestamp, res) {
   });
 }
 
-server.listen(5000, () =>
-  console.log("Multi-User Live Video/Audio Translation Server running on port 5000")
+const PORT = process.env.PORT || 5000;
+
+server.listen(PORT, () =>
+  console.log(`Multi-User Live Video/Audio Translation Server running on port ${PORT}`)
 );

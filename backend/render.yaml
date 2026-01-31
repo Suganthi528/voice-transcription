@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: language-transcription-backend
+    env: node
+    plan: free
+    buildCommand: |
+      npm install
+      pip install -r requirements.txt
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        fromService:
+          type: web
+          name: language-transcription-backend
+          property: port
+    healthCheckPath: /
+    autoDeploy: true

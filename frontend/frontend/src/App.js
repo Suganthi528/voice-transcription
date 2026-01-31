@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 
 function App() {
   const [text, setText] = useState("");
@@ -19,11 +19,16 @@ function App() {
   const [connectedUsers, setConnectedUsers] = useState([]);
   const [roomMessages, setRoomMessages] = useState([]);
   const [joinError, setJoinError] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState("checking");
   
   const videoRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const wsRef = useRef(null);
   const streamRef = useRef(null);
+
+  // API Configuration
+  const API_BASE_URL = 'https://language-transcription-backend-1.onrender.com';
+  const WS_BASE_URL = 'wss://language-transcription-backend-1.onrender.com';
 
   const languages = {
     ta: "Tamil (தமிழ்)",
@@ -44,7 +49,10 @@ function App() {
 
   useEffect(() => {
     // Generate random user ID
-    setUserId(`user_${Math.random().toString(36).substr(2, 9)}`);
+    setUserId(`user_${Math.random().toString(36).substring(2, 11)}`);
+    
+    // Check backend connection
+    checkBackendConnection();
     
     return () => {
       if (wsRef.current) {
@@ -56,6 +64,24 @@ function App() {
     };
   }, []);
 
+  const checkBackendConnection = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/health`, { 
+        method: 'GET',
+        timeout: 10000 // 10 second timeout
+      });
+      
+      if (response.ok) {
+        setConnectionStatus("connected");
+      } else {
+        setConnectionStatus("error");
+      }
+    } catch (error) {
+      console.error('Backend connection failed:', error);
+      setConnectionStatus("error");
+    }
+  };
+
   const createRoom = async () => {
     if (!userName.trim()) {
       alert("Please enter your name first");
@@ -63,7 +89,7 @@ function App() {
     }
 
     try {
-      const response = await fetch("http://localhost:5000/create-room", {
+      const response = await fetch(`${API_BASE_URL}/create-room`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -96,7 +122,7 @@ function App() {
 
     try {
       // Setup WebSocket connection
-      wsRef.current = new WebSocket('ws://localhost:5000');
+      wsRef.current = new WebSocket(WS_BASE_URL);
       
       wsRef.current.onopen = () => {
         console.log('Connected to translation server');
@@ -282,7 +308,7 @@ function App() {
         break;
         
       case 'translated-audio':
-        setAudio(`http://localhost:5000${data.audioUrl}`);
+        setAudio(`${API_BASE_URL}${data.audioUrl}`);
         addRoomMessage(`${data.fromUserName}: "${data.originalText}" → "${data.translatedText}"`);
         setProcessingStep("✅ Complete");
         setTimeout(() => setProcessingStep(""), 2000);
@@ -359,7 +385,7 @@ function App() {
       formData.append("targetLang", targetLanguage);
       formData.append("videoTimestamp", Date.now());
 
-      const response = await fetch("http://localhost:5000/live-translate", {
+      const response = await fetch(`${API_BASE_URL}/live-translate`, {
         method: "POST",
         body: formData,
       });
@@ -378,7 +404,7 @@ function App() {
       setTranslatedText(result.translatedText);
       
       if (result.audioReady) {
-        setAudio(`http://localhost:5000${result.audioUrl}`);
+        setAudio(`${API_BASE_URL}${result.audioUrl}`);
       }
       
       setProcessingStep("✅ Complete");
@@ -415,6 +441,20 @@ function App() {
           <p style={{ margin: 0, fontSize: 16, fontWeight: 'bold' }}>
             Connect Two Systems → Live Video/Audio → Speech-to-Text → Translation → Audio-to-Audio → Shared Output
           </p>
+        </div>
+        
+        {/* Backend Connection Status */}
+        <div style={{ 
+          backgroundColor: connectionStatus === 'connected' ? '#d5f4e6' : connectionStatus === 'error' ? '#ffebee' : '#fff3cd', 
+          padding: 10, 
+          borderRadius: 5,
+          marginBottom: 20,
+          textAlign: 'center',
+          border: `1px solid ${connectionStatus === 'connected' ? '#27ae60' : connectionStatus === 'error' ? '#f44336' : '#ffc107'}`
+        }}>
+          {connectionStatus === 'checking' && '🔄 Checking backend connection...'}
+          {connectionStatus === 'connected' && '✅ Backend connected successfully'}
+          {connectionStatus === 'error' && '❌ Backend connection failed - Please wait for Render to wake up (30 seconds)'}
         </div>
       </div>
       
