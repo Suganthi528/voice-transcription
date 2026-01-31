@@ -18,8 +18,8 @@ pip-delete-this-directory.txt
 *.wav
 *.mp3
 *.webm
-uploads/
-public/
+backend/uploads/
+backend/public/
 
 # Logs
 *.log
