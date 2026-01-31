@@ -240,7 +240,7 @@ function App() {
             wsRef.current.send(JSON.stringify({
               type: 'audio-chunk',
               audioData: base64,
-              targetLang: targetLanguage,
+              senderLang: targetLanguage, // Language of the person speaking
               roomId: roomId
             }));
           }
@@ -308,8 +308,11 @@ function App() {
         break;
         
       case 'translated-audio':
-        setAudio(`${API_BASE_URL}${data.audioUrl}`);
-        addRoomMessage(`${data.fromUserName}: "${data.originalText}" → "${data.translatedText}"`);
+        // Only play audio if it's meant for this user's language
+        if (data.targetLang === targetLanguage) {
+          setAudio(`${API_BASE_URL}${data.audioUrl}`);
+        }
+        addRoomMessage(`${data.fromUserName} (${languages[data.targetLang]}): "${data.originalText}" → "${data.translatedText}"`);
         setProcessingStep("✅ Complete");
         setTimeout(() => setProcessingStep(""), 2000);
         break;
@@ -439,7 +442,7 @@ function App() {
           border: '2px solid #3498db'
         }}>
           <p style={{ margin: 0, fontSize: 16, fontWeight: 'bold' }}>
-            Connect Two Systems → Live Video/Audio → Speech-to-Text → Translation → Audio-to-Audio → Shared Output
+            🌍 Multi-Language Live Translation: Speak in ANY language → Everyone hears in THEIR chosen language
           </p>
         </div>
         
@@ -539,7 +542,7 @@ function App() {
           
           <div style={{ marginBottom: 15 }}>
             <label style={{ fontSize: 14, fontWeight: 'bold', display: 'block', marginBottom: 5 }}>
-              Your Language:
+              Your Language (What you want to hear):
             </label>
             <select 
               value={targetLanguage} 
@@ -557,6 +560,9 @@ function App() {
                 <option key={code} value={code}>{name}</option>
               ))}
             </select>
+            <small style={{ color: '#666' }}>
+              When others speak, you'll hear translation in this language
+            </small>
           </div>
           
           {joinError && (
@@ -831,27 +837,27 @@ function App() {
         borderRadius: 10,
         textAlign: 'center'
       }}>
-        <h3 style={{ color: '#27ae60', marginBottom: 15 }}>🚀 How Multi-User Translation Works</h3>
+        <h3 style={{ color: '#27ae60', marginBottom: 15 }}>🚀 How Multi-Language Translation Works</h3>
         <div style={{ display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 15 }}>
           <div style={{ flex: '1 1 150px', minWidth: 120 }}>
             <div style={{ fontSize: 24, marginBottom: 5 }}>🏠</div>
-            <strong>Create/Join Room</strong>
-            <p style={{ fontSize: 12, margin: 5 }}>Connect two systems</p>
+            <strong>Join Room</strong>
+            <p style={{ fontSize: 12, margin: 5 }}>Choose your preferred language</p>
           </div>
           <div style={{ flex: '1 1 150px', minWidth: 120 }}>
             <div style={{ fontSize: 24, marginBottom: 5 }}>🎤</div>
-            <strong>Speak</strong>
-            <p style={{ fontSize: 12, margin: 5 }}>One person speaks English</p>
+            <strong>Speak Any Language</strong>
+            <p style={{ fontSize: 12, margin: 5 }}>Tamil, English, Hindi, etc.</p>
           </div>
           <div style={{ flex: '1 1 150px', minWidth: 120 }}>
             <div style={{ fontSize: 24, marginBottom: 5 }}>🌐</div>
-            <strong>Translate</strong>
-            <p style={{ fontSize: 12, margin: 5 }}>Real-time translation</p>
+            <strong>Auto-Translate</strong>
+            <p style={{ fontSize: 12, margin: 5 }}>To each user's language</p>
           </div>
           <div style={{ flex: '1 1 150px', minWidth: 120 }}>
             <div style={{ fontSize: 24, marginBottom: 5 }}>🔊</div>
-            <strong>Broadcast</strong>
-            <p style={{ fontSize: 12, margin: 5 }}>All users hear translation</p>
+            <strong>Personal Audio</strong>
+            <p style={{ fontSize: 12, margin: 5 }}>Everyone hears their language</p>
           </div>
         </div>
       </div>
