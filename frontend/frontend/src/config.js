@@ -5,11 +5,11 @@ export const API_CONFIG = {
   // Use localhost for development, Render URL for production
   API_BASE_URL: isDevelopment 
     ? 'http://localhost:5000' 
-    : 'https://language-transcription-backend-1.onrender.com',
+    : 'https://voice-transcription-2-hee2.onrender.com',
   
   WS_BASE_URL: isDevelopment 
     ? 'ws://localhost:5000' 
-    : 'wss://language-transcription-backend-1.onrender.com'
+    : 'wss://voice-transcription-2-hee2.onrender.com'
 };
 
 // Export individual URLs for convenience

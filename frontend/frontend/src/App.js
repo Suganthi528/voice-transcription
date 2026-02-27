@@ -32,8 +32,8 @@ function App() {
   const streamRef = useRef(null);
 
   // API Configuration
-  const API_BASE_URL = 'https://language-transcription-backend-1.onrender.com';
-  const WS_BASE_URL = 'wss://language-transcription-backend-1.onrender.com';
+  const API_BASE_URL = 'https://voice-transcription-2-hee2.onrender.com';
+  const WS_BASE_URL = 'wss://voice-transcription-2-hee2.onrender.com';
 
   const languages = {
     ta: "Tamil (தமிழ்)",
