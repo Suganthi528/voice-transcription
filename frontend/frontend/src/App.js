@@ -30,6 +30,8 @@ function App() {
   const mediaRecorderRef = useRef(null);
   const wsRef = useRef(null);
   const streamRef = useRef(null);
+  const originalAudioRef = useRef(null);
+  const translatedAudioRef = useRef(null);
 
   // API Configuration
   const API_BASE_URL = 'https://voice-transcription-2-hee2.onrender.com';
@@ -323,6 +325,8 @@ function App() {
         // Everyone hears the original audio from the speaker
         setOriginalAudio(`${API_BASE_URL}${data.audioUrl}`);
         addRoomMessage(`🔊 Original audio from ${data.fromUserName} (${languages[data.senderLang]})`);
+        // Play audio after a short delay to ensure it's loaded
+        setTimeout(() => playAudio(originalAudioRef), 100);
         break;
         
       case 'translated-audio':
@@ -332,6 +336,8 @@ function App() {
           setTranslatedText(data.translatedText);
           addRoomMessage(`🌐 Translation for you: "${data.translatedText}"`);
           setProcessingStep("✅ Complete");
+          // Play translated audio after a short delay
+          setTimeout(() => playAudio(translatedAudioRef), 100);
           setTimeout(() => setProcessingStep(""), 2000);
         }
         break;
@@ -354,6 +360,16 @@ function App() {
       message,
       timestamp: new Date().toLocaleTimeString()
     }]);
+  };
+
+  // Function to play audio programmatically
+  const playAudio = (audioRef) => {
+    if (audioRef && audioRef.current) {
+      audioRef.current.play().catch(error => {
+        console.log('Audio autoplay prevented:', error);
+        // User interaction required for autoplay
+      });
+    }
   };
 
   const startSingleRecording = async () => {
@@ -832,16 +848,17 @@ function App() {
               borderLeft: '4px solid #ff9800'
             }}>
               <h4 style={{ margin: '0 0 10px 0', color: '#2c3e50' }}>
-                🎤 Original Audio (Global Broadcast):
+                🎤 Original Audio (Everyone Hears This):
               </h4>
               <audio 
+                ref={originalAudioRef}
                 controls 
                 src={originalAudio} 
                 style={{ width: '100%', maxWidth: 300 }}
-                autoPlay={isLiveMode}
+                autoPlay
               />
               <p style={{ fontSize: 12, margin: '5px 0 0 0', color: '#666' }}>
-                Everyone in the room hears this original voice
+                Original voice from {currentSpeaker || 'speaker'}
               </p>
             </div>
           )}
@@ -860,13 +877,14 @@ function App() {
                 🌐 Your Translation ({languages[targetLanguage]}):
               </h4>
               <audio 
+                ref={translatedAudioRef}
                 controls 
                 src={translatedAudio} 
                 style={{ width: '100%', maxWidth: 300 }}
-                autoPlay={isLiveMode}
+                autoPlay
               />
               <p style={{ fontSize: 12, margin: '5px 0 0 0', color: '#666' }}>
-                Only you hear this translated version
+                Translated to your language: {translatedText}
               </p>
             </div>
           )}
