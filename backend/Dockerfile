@@ -31,8 +31,8 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p uploads public
 
-# Expose port
-EXPOSE $PORT
+# Expose port (Render will set PORT env variable)
+EXPOSE 10000
 
 # Start the application
-CMD ["npm", "start"]
+CMD ["node", "server.js"]
