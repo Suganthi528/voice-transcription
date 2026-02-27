@@ -1,14 +1,13 @@
 services:
   - type: web
     name: language-transcription-backend
-    env: docker
+    env: node
     plan: free
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    rootDir: backend
+    buildCommand: npm install && pip3 install -r requirements.txt
+    startCommand: node server.js
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
