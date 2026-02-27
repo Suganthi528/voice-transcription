@@ -9,6 +9,7 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isLiveMode, setIsLiveMode] = useState(false);
   const [processingStep, setProcessingStep] = useState("");
+  const [isBackendReady, setIsBackendReady] = useState(false);
   
   // Multi-user room states
   const [roomId, setRoomId] = useState("");
@@ -73,19 +74,37 @@ function App() {
 
   const checkBackendConnection = async () => {
     try {
+      setConnectionStatus("checking");
+      console.log('Checking backend connection...');
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
       const response = await fetch(`${API_BASE_URL}/health`, { 
         method: 'GET',
-        timeout: 10000 // 10 second timeout
+        signal: controller.signal
       });
       
+      clearTimeout(timeoutId);
+      
       if (response.ok) {
+        const data = await response.json();
+        console.log('Backend connected:', data);
         setConnectionStatus("connected");
+        setIsBackendReady(true);
       } else {
         setConnectionStatus("error");
+        setIsBackendReady(false);
       }
     } catch (error) {
       console.error('Backend connection failed:', error);
-      setConnectionStatus("error");
+      if (error.name === 'AbortError') {
+        setConnectionStatus("timeout");
+        alert('Backend is waking up from sleep. Please wait 30 seconds and try again.');
+      } else {
+        setConnectionStatus("error");
+      }
+      setIsBackendReady(false);
     }
   };
 
@@ -316,29 +335,46 @@ function App() {
         
       case 'stt-result':
         setText(data.text);
-        setCurrentSpeaker(`${data.fromUserName} (${languages[data.senderLang]})`);
+        setCurrentSpeaker(`${data.fromUserName} (${languages[data.senderLang] || data.senderLang})`);
         setProcessingStep("🔄 Translating...");
         addRoomMessage(`🎤 ${data.fromUserName} said: "${data.text}"`);
+        console.log('Received transcription:', data.text);
+        break;
+        
+      case 'translation-result':
+        setTranslatedText(data.translatedText);
+        setProcessingStep("🎵 Generating audio...");
+        console.log('Received translation:', data.translatedText);
         break;
         
       case 'original-audio':
         // Everyone hears the original audio from the speaker
+        console.log('Received original audio:', data.audioUrl);
         setOriginalAudio(`${API_BASE_URL}${data.audioUrl}`);
-        addRoomMessage(`🔊 Original audio from ${data.fromUserName} (${languages[data.senderLang]})`);
+        addRoomMessage(`🔊 Original audio from ${data.fromUserName} (${languages[data.senderLang] || data.senderLang})`);
         // Play audio after a short delay to ensure it's loaded
-        setTimeout(() => playAudio(originalAudioRef), 100);
+        setTimeout(() => {
+          console.log('Attempting to play original audio');
+          playAudio(originalAudioRef);
+        }, 200);
         break;
         
       case 'translated-audio':
         // Only users with matching target language receive this
+        console.log('Received translated audio for language:', data.targetLang);
         if (data.targetLang === targetLanguage) {
           setTranslatedAudio(`${API_BASE_URL}${data.audioUrl}`);
           setTranslatedText(data.translatedText);
           addRoomMessage(`🌐 Translation for you: "${data.translatedText}"`);
           setProcessingStep("✅ Complete");
           // Play translated audio after a short delay
-          setTimeout(() => playAudio(translatedAudioRef), 100);
-          setTimeout(() => setProcessingStep(""), 2000);
+          setTimeout(() => {
+            console.log('Attempting to play translated audio');
+            playAudio(translatedAudioRef);
+          }, 200);
+          setTimeout(() => setProcessingStep(""), 3000);
+        } else {
+          console.log('Translated audio not for this user language');
         }
         break;
         
@@ -365,10 +401,23 @@ function App() {
   // Function to play audio programmatically
   const playAudio = (audioRef) => {
     if (audioRef && audioRef.current) {
-      audioRef.current.play().catch(error => {
-        console.log('Audio autoplay prevented:', error);
-        // User interaction required for autoplay
-      });
+      console.log('Playing audio from ref:', audioRef.current.src);
+      const playPromise = audioRef.current.play();
+      
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            console.log('Audio playing successfully');
+          })
+          .catch(error => {
+            console.log('Audio autoplay prevented by browser:', error.message);
+            console.log('User needs to interact with the page first');
+            // Show a message to the user
+            alert('Click anywhere on the page to enable audio playback');
+          });
+      }
+    } else {
+      console.log('Audio ref not available');
     }
   };
 
@@ -483,16 +532,61 @@ function App() {
         
         {/* Backend Connection Status */}
         <div style={{ 
-          backgroundColor: connectionStatus === 'connected' ? '#d5f4e6' : connectionStatus === 'error' ? '#ffebee' : '#fff3cd', 
-          padding: 10, 
+          backgroundColor: connectionStatus === 'connected' ? '#d5f4e6' : connectionStatus === 'error' || connectionStatus === 'timeout' ? '#ffebee' : '#fff3cd', 
+          padding: 15, 
           borderRadius: 5,
           marginBottom: 20,
           textAlign: 'center',
-          border: `1px solid ${connectionStatus === 'connected' ? '#27ae60' : connectionStatus === 'error' ? '#f44336' : '#ffc107'}`
+          border: `2px solid ${connectionStatus === 'connected' ? '#27ae60' : connectionStatus === 'error' || connectionStatus === 'timeout' ? '#f44336' : '#ffc107'}`
         }}>
-          {connectionStatus === 'checking' && '🔄 Checking backend connection...'}
-          {connectionStatus === 'connected' && '✅ Backend connected successfully'}
-          {connectionStatus === 'error' && '❌ Backend connection failed - Please wait for Render to wake up (30 seconds)'}
+          {connectionStatus === 'checking' && (
+            <div>
+              <div>🔄 Checking backend connection...</div>
+              <small style={{ color: '#666' }}>This may take up to 30 seconds if the server is sleeping</small>
+            </div>
+          )}
+          {connectionStatus === 'connected' && '✅ Backend connected and ready!'}
+          {connectionStatus === 'timeout' && (
+            <div>
+              <div>⏰ Backend is waking up from sleep...</div>
+              <button 
+                onClick={checkBackendConnection}
+                style={{
+                  marginTop: 10,
+                  padding: '8px 16px',
+                  backgroundColor: '#2196f3',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 5,
+                  cursor: 'pointer'
+                }}
+              >
+                🔄 Retry Connection
+              </button>
+            </div>
+          )}
+          {connectionStatus === 'error' && (
+            <div>
+              <div>❌ Backend connection failed</div>
+              <button 
+                onClick={checkBackendConnection}
+                style={{
+                  marginTop: 10,
+                  padding: '8px 16px',
+                  backgroundColor: '#2196f3',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 5,
+                  cursor: 'pointer'
+                }}
+              >
+                🔄 Retry Connection
+              </button>
+              <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>
+                Render free tier: First request takes 30-60 seconds to wake up
+              </div>
+            </div>
+          )}
         </div>
       </div>
       
@@ -712,16 +806,16 @@ function App() {
             {!isLiveMode ? (
               <button 
                 onClick={startLiveTranslation}
-                disabled={!isInRoom}
+                disabled={!isInRoom || !isBackendReady}
                 style={{ 
                   padding: '12px 24px', 
                   fontSize: 16, 
-                  backgroundColor: !isInRoom ? '#95a5a6' : '#e74c3c', 
+                  backgroundColor: (!isInRoom || !isBackendReady) ? '#95a5a6' : '#e74c3c', 
                   color: 'white', 
                   border: 'none', 
                   borderRadius: 25,
-                  cursor: !isInRoom ? 'not-allowed' : 'pointer',
-                  boxShadow: '0 4px 15px rgba(231, 76, 60, 0.3)'
+                  cursor: (!isInRoom || !isBackendReady) ? 'not-allowed' : 'pointer',
+                  boxShadow: (isInRoom && isBackendReady) ? '0 4px 15px rgba(231, 76, 60, 0.3)' : 'none'
                 }}
               >
                 🔴 Start Live Translation
