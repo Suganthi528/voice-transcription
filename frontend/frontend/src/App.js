@@ -21,6 +21,11 @@ function App() {
   const [joinError, setJoinError] = useState("");
   const [connectionStatus, setConnectionStatus] = useState("checking");
   
+  // Audio streams - simplified approach
+  const [originalAudio, setOriginalAudio] = useState("");
+  const [translatedAudio, setTranslatedAudio] = useState(""); // Only user's preferred language
+  const [currentSpeaker, setCurrentSpeaker] = useState("");
+  
   const videoRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const wsRef = useRef(null);
@@ -103,7 +108,16 @@ function App() {
       
       if (response.ok) {
         setRoomId(result.roomId);
-        alert(`Room created successfully!\n\nRoom ID: ${result.roomId}\n${result.hasPassword ? 'Password: ' + roomPassword : 'No password required'}\n\nShare these details with others to join.`);
+        const message = `Room created successfully!\n\nRoom ID: ${result.roomId}\n${result.hasPassword ? 'Password: ' + roomPassword : 'No password required'}\n\nShare these details with others to join.`;
+        alert(message);
+        
+        // Copy room ID to clipboard
+        try {
+          navigator.clipboard.writeText(result.roomId);
+          console.log('Room ID copied to clipboard');
+        } catch (e) {
+          console.log('Could not copy to clipboard');
+        }
       } else {
         alert("Failed to create room: " + result.error);
       }
@@ -170,6 +184,11 @@ function App() {
     setIsLiveMode(false);
     setConnectedUsers([]);
     setRoomMessages([]);
+    setOriginalAudio("");
+    setTranslatedAudio("");
+    setCurrentSpeaker("");
+    setText("");
+    setTranslatedText("");
     videoRef.current.srcObject = null;
   };
 
@@ -294,27 +313,27 @@ function App() {
         break;
         
       case 'stt-result':
-        if (data.fromUser === userId) {
-          setText(data.text);
-          setProcessingStep("🔄 Translating...");
-        }
+        setText(data.text);
+        setCurrentSpeaker(`${data.fromUserName} (${languages[data.senderLang]})`);
+        setProcessingStep("🔄 Translating...");
+        addRoomMessage(`🎤 ${data.fromUserName} said: "${data.text}"`);
         break;
         
-      case 'translation-result':
-        if (data.fromUser === userId) {
-          setTranslatedText(data.translatedText);
-          setProcessingStep("🎵 Generating audio...");
-        }
+      case 'original-audio':
+        // Everyone hears the original audio from the speaker
+        setOriginalAudio(`${API_BASE_URL}${data.audioUrl}`);
+        addRoomMessage(`🔊 Original audio from ${data.fromUserName} (${languages[data.senderLang]})`);
         break;
         
       case 'translated-audio':
-        // Only play audio if it's meant for this user's language
+        // Only users with matching target language receive this
         if (data.targetLang === targetLanguage) {
-          setAudio(`${API_BASE_URL}${data.audioUrl}`);
+          setTranslatedAudio(`${API_BASE_URL}${data.audioUrl}`);
+          setTranslatedText(data.translatedText);
+          addRoomMessage(`🌐 Translation for you: "${data.translatedText}"`);
+          setProcessingStep("✅ Complete");
+          setTimeout(() => setProcessingStep(""), 2000);
         }
-        addRoomMessage(`${data.fromUserName} (${languages[data.targetLang]}): "${data.originalText}" → "${data.translatedText}"`);
-        setProcessingStep("✅ Complete");
-        setTimeout(() => setProcessingStep(""), 2000);
         break;
         
       case 'error':
@@ -442,7 +461,7 @@ function App() {
           border: '2px solid #3498db'
         }}>
           <p style={{ margin: 0, fontSize: 16, fontWeight: 'bold' }}>
-            🌍 Multi-Language Live Translation: Speak in ANY language → Everyone hears in THEIR chosen language
+            � MBidirectional Audio: Original voice + All translated languages broadcast to everyone
           </p>
         </div>
         
@@ -507,7 +526,7 @@ function App() {
               type="text"
               value={roomId}
               onChange={(e) => setRoomId(e.target.value)}
-              placeholder="Enter room ID or leave blank to auto-generate"
+              placeholder="Leave blank to auto-generate unique ID"
               style={{ 
                 width: '100%', 
                 padding: 8, 
@@ -517,6 +536,9 @@ function App() {
               }}
               disabled={isInRoom}
             />
+            <small style={{ color: '#666' }}>
+              Tip: Leave blank for auto-generated unique room ID
+            </small>
           </div>
           
           <div style={{ marginBottom: 15 }}>
@@ -736,6 +758,20 @@ function App() {
         }}>
           <h3 style={{ marginTop: 0, color: '#2c3e50' }}>🌐 Translation Results</h3>
 
+          {currentSpeaker && (
+            <div style={{ 
+              padding: 10, 
+              backgroundColor: '#e3f2fd', 
+              borderRadius: 5,
+              marginBottom: 15,
+              textAlign: 'center',
+              fontWeight: 'bold',
+              border: '2px solid #2196f3'
+            }}>
+              🎤 Currently Speaking: {currentSpeaker}
+            </div>
+          )}
+
           {processingStep && (
             <div style={{ 
               padding: 10, 
@@ -758,7 +794,7 @@ function App() {
               borderLeft: '4px solid #3498db'
             }}>
               <h4 style={{ margin: '0 0 8px 0', color: '#2c3e50' }}>
-                📝 Original (English):
+                📝 Original Text:
               </h4>
               <p style={{ margin: 0, fontSize: 14 }}>{text}</p>
             </div>
@@ -773,7 +809,7 @@ function App() {
               borderLeft: '4px solid #27ae60'
             }}>
               <h4 style={{ margin: '0 0 8px 0', color: '#2c3e50' }}>
-                🌐 Translated ({languages[targetLanguage]}):
+                🌐 Sample Translation ({languages[targetLanguage]}):
               </h4>
               <p style={{ 
                 margin: 0, 
@@ -785,24 +821,53 @@ function App() {
             </div>
           )}
 
-          {audio && (
+          {/* Original Audio Stream - Everyone Hears This */}
+          {originalAudio && (
             <div style={{ 
               marginTop: 20, 
               padding: 15, 
               backgroundColor: '#fff3cd', 
               borderRadius: 8,
               textAlign: 'center',
-              borderLeft: '4px solid #ffc107'
+              borderLeft: '4px solid #ff9800'
             }}>
               <h4 style={{ margin: '0 0 10px 0', color: '#2c3e50' }}>
-                🔊 Generated Audio:
+                🎤 Original Audio (Global Broadcast):
               </h4>
               <audio 
                 controls 
-                src={audio} 
+                src={originalAudio} 
                 style={{ width: '100%', maxWidth: 300 }}
                 autoPlay={isLiveMode}
               />
+              <p style={{ fontSize: 12, margin: '5px 0 0 0', color: '#666' }}>
+                Everyone in the room hears this original voice
+              </p>
+            </div>
+          )}
+
+          {/* Translated Audio - Personal to User */}
+          {translatedAudio && (
+            <div style={{ 
+              marginTop: 20, 
+              padding: 15, 
+              backgroundColor: '#e8f5e8', 
+              borderRadius: 8,
+              textAlign: 'center',
+              borderLeft: '4px solid #4caf50'
+            }}>
+              <h4 style={{ margin: '0 0 10px 0', color: '#2c3e50' }}>
+                🌐 Your Translation ({languages[targetLanguage]}):
+              </h4>
+              <audio 
+                controls 
+                src={translatedAudio} 
+                style={{ width: '100%', maxWidth: 300 }}
+                autoPlay={isLiveMode}
+              />
+              <p style={{ fontSize: 12, margin: '5px 0 0 0', color: '#666' }}>
+                Only you hear this translated version
+              </p>
             </div>
           )}
 
@@ -837,27 +902,27 @@ function App() {
         borderRadius: 10,
         textAlign: 'center'
       }}>
-        <h3 style={{ color: '#27ae60', marginBottom: 15 }}>🚀 How Multi-Language Translation Works</h3>
+        <h3 style={{ color: '#27ae60', marginBottom: 15 }}>🚀 How Bidirectional Audio Translation Works</h3>
         <div style={{ display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 15 }}>
-          <div style={{ flex: '1 1 150px', minWidth: 120 }}>
-            <div style={{ fontSize: 24, marginBottom: 5 }}>🏠</div>
-            <strong>Join Room</strong>
-            <p style={{ fontSize: 12, margin: 5 }}>Choose your preferred language</p>
-          </div>
           <div style={{ flex: '1 1 150px', minWidth: 120 }}>
             <div style={{ fontSize: 24, marginBottom: 5 }}>🎤</div>
             <strong>Speak Any Language</strong>
-            <p style={{ fontSize: 12, margin: 5 }}>Tamil, English, Hindi, etc.</p>
+            <p style={{ fontSize: 12, margin: 5 }}>Original audio heard by all</p>
           </div>
           <div style={{ flex: '1 1 150px', minWidth: 120 }}>
             <div style={{ fontSize: 24, marginBottom: 5 }}>🌐</div>
             <strong>Auto-Translate</strong>
-            <p style={{ fontSize: 12, margin: 5 }}>To each user's language</p>
+            <p style={{ fontSize: 12, margin: 5 }}>To all room languages</p>
           </div>
           <div style={{ flex: '1 1 150px', minWidth: 120 }}>
             <div style={{ fontSize: 24, marginBottom: 5 }}>🔊</div>
-            <strong>Personal Audio</strong>
-            <p style={{ fontSize: 12, margin: 5 }}>Everyone hears their language</p>
+            <strong>Multiple Audio Streams</strong>
+            <p style={{ fontSize: 12, margin: 5 }}>Everyone gets all versions</p>
+          </div>
+          <div style={{ flex: '1 1 150px', minWidth: 120 }}>
+            <div style={{ fontSize: 24, marginBottom: 5 }}>🎧</div>
+            <strong>Choose What to Hear</strong>
+            <p style={{ fontSize: 12, margin: 5 }}>Original or your language</p>
           </div>
         </div>
       </div>

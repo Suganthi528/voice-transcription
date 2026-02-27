@@ -22,10 +22,10 @@ def convert_webm_to_wav(webm_path):
         print(f"Audio conversion error: {e}")
         return webm_path
 
-def transcribe_audio(audio_file_path):
+def transcribe_audio(audio_file_path, language='auto'):
     """
     Transcribe audio file to text using SpeechRecognition
-    Works without pyaudio by using file-based recognition
+    Supports multiple languages with automatic detection
     """
     recognizer = sr.Recognizer()
     
@@ -42,10 +42,49 @@ def transcribe_audio(audio_file_path):
             # Record the audio data
             audio_data = recognizer.record(source)
         
-        # Use Google Speech Recognition (requires internet)
+        # Language mapping for Google Speech Recognition
+        language_codes = {
+            'auto': None,  # Let Google auto-detect
+            'en': 'en-US',
+            'ta': 'ta-IN',
+            'hi': 'hi-IN',
+            'te': 'te-IN',
+            'kn': 'kn-IN',
+            'ml': 'ml-IN',
+            'es': 'es-ES',
+            'fr': 'fr-FR',
+            'de': 'de-DE',
+            'it': 'it-IT',
+            'pt': 'pt-PT',
+            'ru': 'ru-RU',
+            'ja': 'ja-JP',
+            'ko': 'ko-KR',
+            'zh': 'zh-CN'
+        }
+        
+        # Use Google Speech Recognition with language support
         try:
-            text = recognizer.recognize_google(audio_data, language='en-US')
-            return text
+            # If auto-detect, try multiple languages
+            if language == 'auto' or language not in language_codes:
+                # Try common languages in order
+                for lang_code in ['en-US', 'ta-IN', 'hi-IN', 'te-IN', 'es-ES']:
+                    try:
+                        text = recognizer.recognize_google(audio_data, language=lang_code)
+                        if text:
+                            print(f"[DEBUG] Detected language: {lang_code}", file=sys.stderr)
+                            return text
+                    except:
+                        continue
+                # If all fail, try without language specification
+                text = recognizer.recognize_google(audio_data)
+                return text
+            else:
+                # Use specified language
+                lang_code = language_codes.get(language, 'en-US')
+                text = recognizer.recognize_google(audio_data, language=lang_code)
+                print(f"[DEBUG] Transcribed in {lang_code}: {text}", file=sys.stderr)
+                return text
+                
         except sr.UnknownValueError:
             return "Could not understand audio - please speak clearly"
         except sr.RequestError as e:
@@ -63,9 +102,10 @@ def transcribe_audio(audio_file_path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python transcribe.py <audio_file_path>")
+        print("Usage: python transcribe.py <audio_file_path> [language]")
         sys.exit(1)
     
     audio_path = sys.argv[1]
-    result = transcribe_audio(audio_path)
+    language = sys.argv[2] if len(sys.argv) > 2 else 'auto'
+    result = transcribe_audio(audio_path, language)
     print(result)

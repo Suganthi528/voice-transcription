@@ -199,17 +199,22 @@ async function processAudioChunkForRoom(audioData, senderLang, roomId, senderWs)
   const senderInfo = clients.get(senderWs);
   if (!senderInfo) return;
   
-  // Process through pipeline
-  exec(`python python/transcribe.py ${audioPath}`, (err, transcribedText) => {
+  console.log(`[DEBUG] Processing audio from ${senderInfo.userName} in language: ${senderLang}`);
+  
+  // Process through pipeline with language hint
+  exec(`python python/transcribe.py ${audioPath} ${senderLang}`, (err, transcribedText) => {
     if (err || transcribedText.includes('service error') || transcribedText.includes('internet')) {
       console.log('Online STT failed, trying offline fallback...');
       exec(`python python/transcribe_offline.py ${audioPath}`, (err2, fallbackText) => {
         if (!err2) {
           continueProcessingForRoom(fallbackText.trim(), senderLang, roomId, senderWs, timestamp, audioPath);
+        } else {
+          console.error('Both STT methods failed');
         }
       });
     } else {
       const cleanText = transcribedText.trim();
+      console.log(`[DEBUG] Transcribed text: "${cleanText}"`);
       if (cleanText && !cleanText.includes('Could not understand audio')) {
         continueProcessingForRoom(cleanText, senderLang, roomId, senderWs, timestamp, audioPath);
       }
@@ -220,21 +225,49 @@ async function processAudioChunkForRoom(audioData, senderLang, roomId, senderWs)
 function continueProcessingForRoom(cleanText, senderLang, roomId, senderWs, timestamp, audioPath) {
   const senderInfo = clients.get(senderWs);
   const room = rooms.get(roomId);
-  if (!room) return;
+  if (!room || !senderInfo) {
+    console.log('Room or sender info not found, skipping processing');
+    return;
+  }
   
-  // Send transcription to sender
-  senderWs.send(JSON.stringify({ 
+  // Step 1: Broadcast original audio to everyone in the room
+  const originalAudioUrl = `/static/original_audio_${roomId}_${timestamp}.wav`;
+  
+  // Convert original audio to a standard format and save it
+  try {
+    // Try to copy the original file without FFmpeg
+    fs.copyFileSync(audioPath, `public/original_audio_${roomId}_${timestamp}.wav`);
+    console.log('Original audio file copied successfully');
+    
+    // Broadcast original audio to all room participants
+    broadcastToRoom(roomId, {
+      type: 'original-audio',
+      audioUrl: originalAudioUrl,
+      originalText: cleanText,
+      senderLang: senderLang,
+      fromUser: senderInfo.userId,
+      fromUserName: senderInfo.userName,
+      timestamp
+    });
+  } catch (copyErr) {
+    console.log('Failed to copy original audio file:', copyErr.message);
+    // Continue without original audio broadcast
+  }
+  
+  // Step 2: Send transcription to everyone
+  broadcastToRoom(roomId, {
     type: 'stt-result', 
     text: cleanText,
     timestamp,
     fromUser: senderInfo.userId,
-    fromUserName: senderInfo.userName
-  }));
+    fromUserName: senderInfo.userName,
+    senderLang: senderLang
+  });
   
-  // Get all unique target languages from room participants (excluding sender)
+  // Step 3: Get all unique target languages from room participants (excluding sender's language)
   const targetLanguages = new Set();
   room.clients.forEach((clientInfo, clientWs) => {
-    if (clientWs !== senderWs) {
+    if (clientInfo.language !== senderLang) {
       targetLanguages.add(clientInfo.language);
     }
   });
@@ -244,26 +277,35 @@ function continueProcessingForRoom(cleanText, senderLang, roomId, senderWs, time
   const totalLanguages = targetLanguages.size;
   
   if (totalLanguages === 0) {
-    // No other users in room, cleanup and return
+    // No translation needed, cleanup and return
     setTimeout(() => {
-      try { fs.unlinkSync(audioPath); } catch (e) {}
-    }, 10000);
+      try { 
+        fs.unlinkSync(audioPath);
+        fs.unlinkSync(`public/original_audio_${roomId}_${timestamp}.wav`);
+      } catch (e) {}
+    }, 60000);
     return;
   }
   
   targetLanguages.forEach(targetLang => {
-    // Translation step
-    exec(`python python/translate.py "${cleanText}" ${targetLang}`, (err, translatedText) => {
+    // Translation step with source language
+    exec(`python python/translate.py "${cleanText}" ${targetLang} ${senderLang}`, (err, translatedText) => {
       if (err) {
         console.error('Translation error:', err.message);
+        // Send error to room
+        broadcastToRoom(roomId, {
+          type: 'error',
+          message: `Translation to ${targetLang} failed`
+        });
         return;
       }
       
       const cleanTranslation = translatedText.trim();
+      console.log(`[DEBUG] Translated from ${senderLang} to ${targetLang}: "${cleanTranslation}"`);
       
-      // Send translation to sender (for their reference)
+      // Send translation result to everyone (first language processed)
       if (processedLanguages === 0) {
-        senderWs.send(JSON.stringify({ 
+        broadcastToRoom(roomId, {
           type: 'translation-result', 
           originalText: cleanText,
           translatedText: cleanTranslation,
@@ -271,7 +313,7 @@ function continueProcessingForRoom(cleanText, senderLang, roomId, senderWs, time
           timestamp,
           fromUser: senderInfo.userId,
           fromUserName: senderInfo.userName
-        }));
+        });
       }
       
       // TTS step for this specific language
@@ -279,38 +321,30 @@ function continueProcessingForRoom(cleanText, senderLang, roomId, senderWs, time
       exec(`python python/synthesize.py "${cleanTranslation}" ${targetLang} ${outputPath}`, (err) => {
         if (err) {
           console.error('TTS error:', err.message);
+          // Send error to room
+          broadcastToRoom(roomId, {
+            type: 'error',
+            message: `Audio generation for ${targetLang} failed`
+          });
           return;
         }
         
         // Send translated audio to users who speak this target language
         room.clients.forEach((clientInfo, clientWs) => {
-          if (clientInfo.language === targetLang && clientWs !== senderWs && clientWs.readyState === WebSocket.OPEN) {
+          if (clientInfo.language === targetLang && clientWs.readyState === WebSocket.OPEN) {
             clientWs.send(JSON.stringify({
               type: 'translated-audio',
               audioUrl: `/static/room_audio_${roomId}_${targetLang}_${timestamp}.wav`,
               originalText: cleanText,
               translatedText: cleanTranslation,
               targetLang: targetLang,
+              senderLang: senderLang,
               fromUser: senderInfo.userId,
               fromUserName: senderInfo.userName,
               timestamp
             }));
           }
         });
-        
-        // Also send to sender for their reference (first language processed)
-        if (processedLanguages === 0) {
-          senderWs.send(JSON.stringify({
-            type: 'translated-audio',
-            audioUrl: `/static/room_audio_${roomId}_${targetLang}_${timestamp}.wav`,
-            originalText: cleanText,
-            translatedText: cleanTranslation,
-            targetLang: targetLang,
-            fromUser: senderInfo.userId,
-            fromUserName: senderInfo.userName,
-            timestamp
-          }));
-        }
         
         processedLanguages++;
         
@@ -319,13 +353,22 @@ function continueProcessingForRoom(cleanText, senderLang, roomId, senderWs, time
           setTimeout(() => {
             try {
               fs.unlinkSync(audioPath);
+              try {
+                fs.unlinkSync(`public/original_audio_${roomId}_${timestamp}.wav`);
+              } catch (e) {
+                console.log('Original audio cleanup error:', e.message);
+              }
               // Clean up all generated audio files for this timestamp
               targetLanguages.forEach(lang => {
                 try {
                   fs.unlinkSync(`public/room_audio_${roomId}_${lang}_${timestamp}.wav`);
-                } catch (e) {}
+                } catch (e) {
+                  console.log('Audio cleanup error:', e.message);
+                }
               });
-            } catch (e) {}
+            } catch (e) {
+              console.log('Main cleanup error:', e.message);
+            }
           }, 60000); // Keep files for 1 minute
         }
       });
@@ -419,11 +462,13 @@ app.get("/rooms", (req, res) => {
 
 app.post("/create-room", (req, res) => {
   const { roomName, password, creatorName } = req.body;
-  const roomId = roomName || `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+  let roomId = roomName || `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   
   // Check if room already exists
   if (rooms.has(roomId)) {
-    return res.status(400).json({ error: "Room already exists" });
+    // If room exists, generate a new unique ID
+    roomId = `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    console.log(`Room name taken, generated new ID: ${roomId}`);
   }
   
   rooms.set(roomId, {
