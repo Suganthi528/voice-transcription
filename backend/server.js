@@ -13,6 +13,9 @@ const wss = new WebSocket.Server({ server });
 
 app.use(cors());
 app.use(express.json());
+// Serve static files (synthesized audio) from the public folder
+app.use(express.static('public'));
+
 app.use('/static', express.static('public'));
 
 // Create directories if they don't exist
@@ -565,6 +568,61 @@ app.post("/tts", (req, res) => {
     console.log('TTS completed, sending audio file');
     res.sendFile(__dirname + "/output.wav");
   });
+});
+
+// Live translate endpoint used by frontend single-recording / live mode
+app.post("/live-translate", upload.single("audio"), (req, res) => {
+  try {
+    const targetLang = req.body.targetLang || 'en';
+    if (!req.file || !req.file.path) {
+      return res.status(400).json({ error: 'No audio uploaded' });
+    }
+
+    const audioPath = req.file.path;
+
+    // Step 1: Speech-to-text
+    exec(`python python/transcribe.py ${JSON.stringify(audioPath)}`, (sttErr, sttOut, sttStderr) => {
+      if (sttErr) {
+        console.error('STT error:', sttErr, sttStderr);
+        return res.status(500).json({ error: 'STT error', details: sttStderr });
+      }
+
+      const originalText = (sttOut || '').trim();
+
+      // Step 2: Translate
+      exec(`python python/translate.py ${JSON.stringify(originalText)} ${targetLang}`, (trErr, trOut, trStderr) => {
+        if (trErr) {
+          console.error('Translation error:', trErr, trStderr);
+          return res.status(500).json({ error: 'Translation error', details: trStderr });
+        }
+
+        const translatedText = (trOut || '').trim();
+
+        // Step 3: Synthesize translated text to a file inside public/
+        const timestamp = Date.now();
+        const outFilename = `live_${timestamp}_${targetLang}.wav`;
+        const outPath = `public/${outFilename}`;
+
+        exec(`python python/synthesize.py ${JSON.stringify(translatedText)} ${targetLang} ${JSON.stringify(outPath)}`, (ttsErr, ttsOut, ttsStderr) => {
+          if (ttsErr) {
+            console.error('TTS error:', ttsErr, ttsStderr);
+            return res.status(500).json({ error: 'TTS error', details: ttsStderr });
+          }
+
+          // Return result with audio URL so frontend can play it
+          return res.json({
+            originalText,
+            translatedText,
+            audioReady: true,
+            audioUrl: `/${outPath}`
+          });
+        });
+      });
+    });
+  } catch (e) {
+    console.error('Live translate failed:', e);
+    return res.status(500).json({ error: 'Live translate failed', details: e.message });
+  }
 });
 
 // Live video/audio translation endpoint

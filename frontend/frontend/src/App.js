@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import TranslationPipeline from "./TranslationPipeline";
 
 function App() {
   const [text, setText] = useState("");

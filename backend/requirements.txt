@@ -5,3 +5,7 @@ numpy
 requests
 pydub
 wave
+gTTS
+
+# OpenAI for better translation (with fallback to googletrans)
+openai>=1.0.0
